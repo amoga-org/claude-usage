@@ -13,6 +13,18 @@ mkdir -p "${BUILD_DIR}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
+# Generate app icon
+echo "Generating app icon..."
+./generate-icon.sh
+if [ $? -ne 0 ]; then
+    echo "Warning: Failed to generate icon, continuing without it"
+fi
+
+# Copy icon if it exists
+if [ -f "${BUILD_DIR}/AppIcon.icns" ]; then
+    cp "${BUILD_DIR}/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/"
+fi
+
 # Copy Info.plist
 cp Info.plist "${APP_BUNDLE}/Contents/"
 
