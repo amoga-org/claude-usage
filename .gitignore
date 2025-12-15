@@ -1,5 +1,7 @@
 # Build artifacts
 build/
+*.icns
+*.iconset/
 
 # macOS
 .DS_Store

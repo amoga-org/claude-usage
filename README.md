@@ -4,39 +4,47 @@ A simple macOS menubar application that displays your Claude API usage limits in
 
 ## Features
 
-- **Menubar Display**: Shows usage percentage with color-coded icon (🟢 green < 50%, 🟡 yellow 50-80%, 🔴 red > 80%)
-- **Simple Dropdown**: Clean, minimal menu showing only the selected metric and reset time
-- **Relative Time**: Shows "Resets in 4h 23m" instead of absolute timestamps
-- **Settings Window**: Configure your session key and choose which metric to display
-- **Metric Options**:
+- **Smart Usage Indicators**: Shows usage percentage with intelligent icons that compare your actual usage to expected usage based on time elapsed:
+  - ✅ On track or under expected usage
+  - ⚠️ Slightly over pace (within 10% of expected)
+  - 🚨 Significantly over pace (more than 10% over expected)
+- **Multiple Metrics**: Switch between different usage limits in the dropdown menu:
   - 5-hour Limit
   - 7-day Limit (All Models)
   - 7-day Limit (Sonnet)
+- **Relative Time Display**: Shows "Resets in 4h 23m" instead of absolute timestamps
+- **Settings Window**: Configure your Claude session key and choose which metric to display in the menubar
 - **Auto-refresh**: Updates every 5 minutes
-- **Persistent Settings**: Session key and preferences saved securely
+- **Persistent Settings**: Session key and preferences saved securely in macOS UserDefaults
 
 ## Quick Start
 
-### 1. Build the app
+### Option 1: Download Pre-built App (Recommended)
+
+1. Download the latest release from the [Releases](../../releases) page
+2. Download `ClaudeUsage.dmg`
+3. Open the DMG and drag `ClaudeUsage.app` to your Applications folder
+4. Launch from Applications
+5. Click the menubar icon and select "Settings..."
+6. Enter your Claude session key (see below)
+
+### Option 2: Build from Source
 
 ```bash
-chmod +x build.sh run.sh
+# Make scripts executable and build
+chmod +x build.sh run.sh create-dmg.sh generate-icon.sh
 ./build.sh
-```
 
-### 2. Launch the app
-
-```bash
+# Launch the app
 open build/ClaudeUsage.app
+
+# Configure settings
+# 1. Click the menubar icon
+# 2. Select "Settings..."
+# 3. Enter your Claude session key
+# 4. Choose which metric to display in the menubar
+# 5. Click "Save"
 ```
-
-### 3. Configure settings
-
-1. Click the menubar icon
-2. Select "Settings..."
-3. Enter your Claude session key
-4. Choose which metric to display
-5. Click "Save"
 
 ## Getting Your Session Key
 
@@ -48,17 +56,32 @@ open build/ClaudeUsage.app
 
 ## Usage
 
-**Menubar**: Shows current usage like "🟢 19%" or "🟡 67%"
+**Menubar Icon**: Shows your selected metric's usage with a smart indicator:
+- Example: "✅ 19%" (on track) or "🚨 67%" (over pace)
+- The icon compares your actual usage to the expected usage for how much time has passed
 
 **Dropdown Menu**:
-- First line: "19% 5-hour Limit" (usage and metric name)
-- Second line: "Resets in 4h 23m" (relative time until reset)
-- Settings, Refresh, and Quit options
+- Lists all available metrics with usage percentages and reset times
+- Click any metric to switch to displaying it in the menubar
+- The currently displayed metric shows a checkmark
+- Access Settings, Refresh data manually, or Quit the app
 
 **Keyboard Shortcuts**:
 - `Cmd+,` - Open Settings
 - `Cmd+R` - Refresh data
 - `Cmd+Q` - Quit app
+
+## How Smart Usage Indicators Work
+
+The app doesn't just show your raw usage percentage. It's smarter than that:
+
+**Example**: If you're 3 hours into a 5-hour limit:
+- Expected usage: ~60% (3/5 hours elapsed)
+- If you're at 45% actual usage: ✅ (under pace, you're good!)
+- If you're at 65% actual usage: ⚠️ (slightly over, watch it)
+- If you're at 80% actual usage: 🚨 (way over pace, slow down!)
+
+This helps you understand not just "how much have I used" but "am I on track for the rest of this period?"
 
 ## Settings Storage
 
@@ -70,15 +93,7 @@ Settings are stored in macOS UserDefaults:
 ## Requirements
 
 - macOS 13.0 or later
-- Xcode Command Line Tools (for Swift compiler)
-
-## Download Pre-built App
-
-Download the latest release from the [Releases](../../releases) page:
-1. Download `ClaudeUsage.dmg`
-2. Open the DMG file
-3. Drag `ClaudeUsage.app` to your Applications folder
-4. Launch from Applications
+- Xcode Command Line Tools (for building from source)
 
 ## Building from Source
 
