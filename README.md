@@ -1,5 +1,7 @@
 # Claude Usage Menubar App
 
+> 🤖 Built by Claude, for Claude
+
 A simple macOS menubar application that displays your Claude API usage limits in real-time.
 
 ## Features
