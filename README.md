@@ -132,22 +132,40 @@ swiftc ClaudeUsageApp.swift \
   -parse-as-library
 ```
 
-## Creating a Release
+## Automated Builds
 
-To publish a new release to GitHub:
+### Continuous Integration
 
-1. Commit your changes and push to main
+Every commit to the `main` branch automatically:
+- Builds the app
+- Creates a DMG file
+- Uploads it as a workflow artifact (available for 30 days)
+
+Download the artifact from: **Actions tab → Click the workflow run → Artifacts section**
+
+### Creating a Release
+
+To publish an official release to GitHub:
+
+1. Commit your changes and push to main:
+   ```bash
+   git add .
+   git commit -m "Your changes"
+   git push origin main
+   ```
+
 2. Create and push a version tag:
    ```bash
    git tag v1.0.0
    git push origin v1.0.0
    ```
+
 3. GitHub Actions will automatically:
    - Build the app
    - Create a DMG file
-   - Publish a new release with the DMG attached
+   - Publish a new GitHub Release with the DMG attached
 
-You can also trigger the release workflow manually from the Actions tab on GitHub.
+You can also trigger builds manually from the **Actions** tab → **Build and Release** → **Run workflow**
 
 ## Troubleshooting
 

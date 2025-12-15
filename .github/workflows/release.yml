@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main  # Trigger on every commit to main branch
     tags:
       - 'v*'  # Trigger on version tags like v1.0.0, v1.1.0, etc.
   workflow_dispatch:  # Allow manual trigger
@@ -39,12 +41,15 @@ jobs:
         fi
 
     - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         files: |
           build/ClaudeUsage.dmg
         body: |
           ## Claude Usage Menubar App ${{ steps.get_version.outputs.version }}
+
+          > 🤖 Built by Claude, for Claude
 
           A macOS menubar application that displays your Claude API usage limits in real-time.
 
@@ -70,7 +75,7 @@ jobs:
 
           ### Features
 
-          - 🟢 Color-coded usage indicators (green < 50%, yellow 50-80%, red > 80%)
+          - ✅ Smart usage indicators that compare actual vs expected usage based on time elapsed
           - 📊 Track multiple metrics: 5-hour limit, 7-day limit (all models), 7-day limit (Sonnet)
           - ⏰ Relative time display ("Resets in 4h 23m")
           - 🔄 Auto-refresh every 5 minutes
@@ -79,3 +84,11 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload DMG as Artifact
+      if: "!startsWith(github.ref, 'refs/tags/')"
+      uses: actions/upload-artifact@v4
+      with:
+        name: ClaudeUsage-${{ steps.get_version.outputs.version }}
+        path: build/ClaudeUsage.dmg
+        retention-days: 30
