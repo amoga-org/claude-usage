@@ -369,14 +369,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Compare actual vs expected consumption
         let icon: String
-        if utilization < expectedConsumption {
-            // Below expected - on track or better
-            icon = "✅"
-        } else if utilization <= expectedConsumption + 10 {
-            // Within 10% over expected - slightly over pace
-            icon = "⚠️"
+        if utilization < expectedConsumption - 5 {
+            // More than 5% below expected - doing great
+            icon = "✳️"
+        } else if utilization <= expectedConsumption + 5 {
+            // Within ±5% of expected - normal range
+            icon = "🚀"
         } else {
-            // More than 10% over expected - significantly over pace
+            // More than 5% over expected - significantly over pace
             icon = "🚨"
         }
 
@@ -387,9 +387,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if utilization >= 80 {
             return "🚨"
         } else if utilization >= 50 {
-            return "⚠️"
+            return "🚀"
         } else {
-            return "✅"
+            return "✳️"
         }
     }
 
