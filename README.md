@@ -6,16 +6,26 @@ A simple macOS menubar application that displays your Claude API usage limits in
 
 ## Features
 
-- **Smart Usage Indicators**: Shows usage percentage with intelligent icons that compare your actual usage to expected usage based on time elapsed:
-  - ✅ On track or under expected usage
-  - ⚠️ Slightly over pace (within 10% of expected)
-  - 🚨 Significantly over pace (more than 10% over expected)
+- **Smart Usage Indicators**: Shows usage with intelligent status icons that compare your actual usage to expected usage based on time elapsed:
+  - ✳️ On track (more than 5% under expected)
+  - 🚀 Borderline (within ±5% of expected)
+  - ⚠️ Exceeding (more than 5% over expected)
+- **Configurable Display**: Mix and match display elements:
+  - Number: Percentage (`42%`), Threshold (`42|85` showing current|expected), or None
+  - Progress Icon: Circle (`◕`), Braille (`⣇`), or multiple bar styles:
+    - `[===  ]` ASCII
+    - `▓▓░░░` Blocks
+    - `■■□□□` Squares
+    - `●●○○○` Circles
+    - `━━───` Lines
+  - Status Emoji: toggle ✳️ 🚀 ⚠️ on/off
 - **Multiple Metrics**: Switch between different usage limits in the dropdown menu:
   - 5-hour Limit
   - 7-day Limit (All Models)
   - 7-day Limit (Sonnet)
+- **Launch at Login**: Option to automatically start the app when you log in
 - **Relative Time Display**: Shows "Resets in 4h 23m" instead of absolute timestamps
-- **Settings Window**: Configure your Claude session key and choose which metric to display in the menubar
+- **Settings Window**: Configure your Claude session key, display preferences, and startup behavior
 - **Auto-refresh**: Updates every 5 minutes
 - **Persistent Settings**: Session key and preferences saved securely in macOS UserDefaults
 
@@ -58,15 +68,23 @@ open build/ClaudeUsage.app
 
 ## Usage
 
-**Menubar Icon**: Shows your selected metric's usage with a smart indicator:
-- Example: "✅ 19%" (on track) or "🚨 67%" (over pace)
-- The icon compares your actual usage to the expected usage for how much time has passed
+**Menubar Icon**: Shows your selected metric's usage with configurable display:
+- Examples: `✳️ 19%`, `🚀 ◑`, `⚠️ ⣧`, `|███░░|`
+- The status icon compares your actual usage to expected usage for time elapsed
 
 **Dropdown Menu**:
 - Lists all available metrics with usage percentages and reset times
 - Click any metric to switch to displaying it in the menubar
 - The currently displayed metric shows a checkmark
 - Access Settings, Refresh data manually, or Quit the app
+
+**Settings Window**:
+- Session Key & Organization ID for authentication
+- Display Metric selection
+- Show Percentage toggle
+- Progress Icon: None, Circle, Braille, or Bar
+- Show Status Emoji toggle
+- Launch at Login toggle
 
 **Keyboard Shortcuts**:
 - `Cmd+,` - Open Settings
@@ -79,18 +97,20 @@ The app doesn't just show your raw usage percentage. It's smarter than that:
 
 **Example**: If you're 3 hours into a 5-hour limit:
 - Expected usage: ~60% (3/5 hours elapsed)
-- If you're at 45% actual usage: ✅ (under pace, you're good!)
-- If you're at 65% actual usage: ⚠️ (slightly over, watch it)
-- If you're at 80% actual usage: 🚨 (way over pace, slow down!)
+- If you're at 45% actual usage: ✳️ (more than 5% under pace, you're good!)
+- If you're at 62% actual usage: 🚀 (within ±5% of expected, borderline)
+- If you're at 80% actual usage: ⚠️ (more than 5% over pace, slow down!)
 
 This helps you understand not just "how much have I used" but "am I on track for the rest of this period?"
 
 ## Settings Storage
 
 Settings are stored in macOS UserDefaults:
-- Session key: Stored securely in your user preferences
+- Session key & Organization ID: Stored in your user preferences
 - Selected metric: Persists between app launches
-- Falls back to `CLAUDE_SESSION_KEY` environment variable if not set in Settings
+- Display preferences: Show percentage, progress icon style, show status emoji
+- Launch at Login: Managed via macOS Login Items
+- Falls back to `CLAUDE_SESSION_KEY` and `CLAUDE_ORGANIZATION_ID` environment variables if not set in Settings
 
 ## Requirements
 

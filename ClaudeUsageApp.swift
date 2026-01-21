@@ -11,6 +11,84 @@ enum MetricType: String, CaseIterable {
     var displayName: String { rawValue }
 }
 
+// MARK: - Display Style Enums
+
+enum NumberDisplayStyle: String, CaseIterable {
+    case none = "None"
+    case percentage = "Percentage (42%)"
+    case threshold = "Threshold (42|85)"
+
+    var displayName: String { rawValue }
+}
+
+enum ProgressIconStyle: String, CaseIterable {
+    case none = "None"
+    case circle = "Circle (◕)"
+    case braille = "Braille (⣇)"
+    case barAscii = "Bar [===  ]"
+    case barBlocks = "Bar ▓▓░░░"
+    case barSquares = "Bar ■■□□□"
+    case barCircles = "Bar ●●○○○"
+    case barLines = "Bar ━━───"
+
+    var displayName: String { rawValue }
+}
+
+// MARK: - Login Item Manager
+
+class LoginItemManager {
+    static let shared = LoginItemManager()
+    private let appPath = "/Applications/ClaudeUsage.app"
+
+    var isLoginItemEnabled: Bool {
+        let script = """
+            tell application "System Events"
+                get the name of every login item
+            end tell
+        """
+        guard let appleScript = NSAppleScript(source: script) else { return false }
+        var error: NSDictionary?
+        let result = appleScript.executeAndReturnError(&error)
+
+        if let items = result.coerce(toDescriptorType: typeAEList) {
+            for i in 1...items.numberOfItems {
+                if let item = items.atIndex(i)?.stringValue, item == "ClaudeUsage" {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    func setLoginItemEnabled(_ enabled: Bool) {
+        if enabled {
+            addLoginItem()
+        } else {
+            removeLoginItem()
+        }
+    }
+
+    private func addLoginItem() {
+        let script = """
+            tell application "System Events"
+                make login item at end with properties {path:"\(appPath)", hidden:false}
+            end tell
+        """
+        var error: NSDictionary?
+        NSAppleScript(source: script)?.executeAndReturnError(&error)
+    }
+
+    private func removeLoginItem() {
+        let script = """
+            tell application "System Events"
+                delete login item "ClaudeUsage"
+            end tell
+        """
+        var error: NSDictionary?
+        NSAppleScript(source: script)?.executeAndReturnError(&error)
+    }
+}
+
 // MARK: - Preferences Manager
 
 class Preferences {
@@ -18,11 +96,20 @@ class Preferences {
     private let defaults = UserDefaults.standard
 
     private let sessionKeyKey = "claudeSessionKey"
+    private let organizationIdKey = "claudeOrganizationId"
     private let metricTypeKey = "selectedMetricType"
+    private let numberDisplayStyleKey = "numberDisplayStyle"
+    private let progressIconStyleKey = "progressIconStyle"
+    private let showStatusEmojiKey = "showStatusEmoji"
 
     var sessionKey: String? {
         get { defaults.string(forKey: sessionKeyKey) }
         set { defaults.set(newValue, forKey: sessionKeyKey) }
+    }
+
+    var organizationId: String? {
+        get { defaults.string(forKey: organizationIdKey) }
+        set { defaults.set(newValue, forKey: organizationIdKey) }
     }
 
     var selectedMetric: MetricType {
@@ -37,6 +124,44 @@ class Preferences {
             defaults.set(newValue.rawValue, forKey: metricTypeKey)
         }
     }
+
+    var numberDisplayStyle: NumberDisplayStyle {
+        get {
+            if let rawValue = defaults.string(forKey: numberDisplayStyleKey),
+               let style = NumberDisplayStyle(rawValue: rawValue) {
+                return style
+            }
+            return .percentage // default to showing percentage
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: numberDisplayStyleKey)
+        }
+    }
+
+    var progressIconStyle: ProgressIconStyle {
+        get {
+            if let rawValue = defaults.string(forKey: progressIconStyleKey),
+               let style = ProgressIconStyle(rawValue: rawValue) {
+                return style
+            }
+            return .none
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: progressIconStyleKey)
+        }
+    }
+
+    var showStatusEmoji: Bool {
+        get {
+            if defaults.object(forKey: showStatusEmojiKey) == nil {
+                return true // default to showing emoji
+            }
+            return defaults.bool(forKey: showStatusEmojiKey)
+        }
+        set {
+            defaults.set(newValue, forKey: showStatusEmojiKey)
+        }
+    }
 }
 
 // MARK: - Settings Window Controller
@@ -44,7 +169,7 @@ class Preferences {
 class SettingsWindowController: NSWindowController {
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 580),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -66,55 +191,124 @@ struct SettingsView: View {
     let onClose: () -> Void
 
     @State private var sessionKey: String = Preferences.shared.sessionKey ?? ""
+    @State private var organizationId: String = Preferences.shared.organizationId ?? ""
     @State private var selectedMetric: MetricType = Preferences.shared.selectedMetric
+    @State private var numberDisplayStyle: NumberDisplayStyle = Preferences.shared.numberDisplayStyle
+    @State private var progressIconStyle: ProgressIconStyle = Preferences.shared.progressIconStyle
+    @State private var showStatusEmoji: Bool = Preferences.shared.showStatusEmoji
+    @State private var launchAtLogin: Bool = LoginItemManager.shared.isLoginItemEnabled
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Claude Usage Settings")
-                .font(.title2)
-                .fontWeight(.bold)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Claude Usage Settings")
+                    .font(.title2)
+                    .fontWeight(.bold)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Session Key:")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Session Key:")
+                        .font(.headline)
 
-                TextField("Enter your Claude session key", text: $sessionKey)
-                    .textFieldStyle(.roundedBorder)
+                    TextField("Enter your Claude session key", text: $sessionKey)
+                        .textFieldStyle(.roundedBorder)
 
-                Text("Find this in your browser's cookies at claude.ai")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+                    Text("Find this in your browser's cookies at claude.ai")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Display Metric:")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Organization ID:")
+                        .font(.headline)
 
-                Picker("", selection: $selectedMetric) {
-                    ForEach(MetricType.allCases, id: \.self) { metric in
-                        Text(metric.displayName).tag(metric)
+                    TextField("Enter your organization ID", text: $organizationId)
+                        .textFieldStyle(.roundedBorder)
+
+                    Text("Find this in any claude.ai API request URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Display Metric:")
+                        .font(.headline)
+
+                    Picker("", selection: $selectedMetric) {
+                        ForEach(MetricType.allCases, id: \.self) { metric in
+                            Text(metric.displayName).tag(metric)
+                        }
                     }
+                    .pickerStyle(.radioGroup)
                 }
-                .pickerStyle(.radioGroup)
-            }
 
-            Spacer()
+                Divider()
 
-            HStack {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Menu Bar Display")
+                        .font(.headline)
+
+                    HStack(alignment: .top, spacing: 30) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Number:")
+                                .font(.subheadline)
+                            Picker("", selection: $numberDisplayStyle) {
+                                ForEach(NumberDisplayStyle.allCases, id: \.self) { style in
+                                    Text(style.displayName).tag(style)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                            .labelsHidden()
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Progress Icon:")
+                                .font(.subheadline)
+                            Picker("", selection: $progressIconStyle) {
+                                ForEach(ProgressIconStyle.allCases, id: \.self) { style in
+                                    Text(style.displayName).tag(style)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                            .labelsHidden()
+                        }
+                    }
+
+                    Toggle("Show Status Emoji", isOn: $showStatusEmoji)
+                        .toggleStyle(.checkbox)
+
+                    Text("Status: ✳️ on track, 🚀 borderline, ⚠️ exceeding")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Divider()
+
+                Toggle("Launch at Login", isOn: $launchAtLogin)
+                    .toggleStyle(.checkbox)
+
                 Spacer()
-                Button("Save") {
-                    Preferences.shared.sessionKey = sessionKey
-                    Preferences.shared.selectedMetric = selectedMetric
 
-                    NotificationCenter.default.post(name: .settingsChanged, object: nil)
+                HStack {
+                    Spacer()
+                    Button("Save") {
+                        Preferences.shared.sessionKey = sessionKey
+                        Preferences.shared.organizationId = organizationId
+                        Preferences.shared.selectedMetric = selectedMetric
+                        Preferences.shared.numberDisplayStyle = numberDisplayStyle
+                        Preferences.shared.progressIconStyle = progressIconStyle
+                        Preferences.shared.showStatusEmoji = showStatusEmoji
+                        LoginItemManager.shared.setLoginItemEnabled(launchAtLogin)
 
-                    onClose()
+                        NotificationCenter.default.post(name: .settingsChanged, object: nil)
+
+                        onClose()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
             }
+            .padding(24)
         }
-        .padding(24)
-        .frame(width: 450, height: 350)
+        .frame(width: 520, height: 580)
     }
 }
 
@@ -177,7 +371,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     item.state = .on
                 }
                 menu.addItem(item)
-                menu.addItem(NSMenuItem(title: "  Resets \(formatRelativeDate(fiveHour.resets_at))", action: nil, keyEquivalent: ""))
+                let expected = calculateExpectedUsage(resetDateString: fiveHour.resets_at, metric: .fiveHour)
+                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
+                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(fiveHour.resets_at))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
 
@@ -192,7 +388,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     item.state = .on
                 }
                 menu.addItem(item)
-                menu.addItem(NSMenuItem(title: "  Resets \(formatRelativeDate(sevenDay.resets_at))", action: nil, keyEquivalent: ""))
+                let expected = calculateExpectedUsage(resetDateString: sevenDay.resets_at, metric: .sevenDay)
+                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
+                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(sevenDay.resets_at))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
 
@@ -207,14 +405,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     item.state = .on
                 }
                 menu.addItem(item)
-                menu.addItem(NSMenuItem(title: "  Resets \(formatRelativeDate(sevenDaySonnet.resets_at))", action: nil, keyEquivalent: ""))
+                let expected = calculateExpectedUsage(resetDateString: sevenDaySonnet.resets_at, metric: .sevenDaySonnet)
+                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
+                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(sevenDaySonnet.resets_at))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
 
             // 7-day Opus (if available)
             if let sevenDayOpus = data.seven_day_opus {
                 menu.addItem(NSMenuItem(title: "\(formatUtilization(sevenDayOpus.utilization))% 7-day Limit (Opus)", action: nil, keyEquivalent: ""))
-                menu.addItem(NSMenuItem(title: "  Resets \(formatRelativeDate(sevenDayOpus.resets_at))", action: nil, keyEquivalent: ""))
+                let expected = calculateExpectedUsage(resetDateString: sevenDayOpus.resets_at, metric: .sevenDay)
+                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
+                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(sevenDayOpus.resets_at))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
         } else {
@@ -265,9 +467,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func fetchUsageData() {
         var sessionKey = Preferences.shared.sessionKey
+        var organizationId = Preferences.shared.organizationId
 
         if sessionKey == nil || sessionKey?.isEmpty == true {
             sessionKey = ProcessInfo.processInfo.environment["CLAUDE_SESSION_KEY"]
+        }
+
+        if organizationId == nil || organizationId?.isEmpty == true {
+            organizationId = ProcessInfo.processInfo.environment["CLAUDE_ORGANIZATION_ID"]
         }
 
         guard let sessionKey = sessionKey, !sessionKey.isEmpty else {
@@ -278,7 +485,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let urlString = "https://claude.ai/api/organizations/e90506cb-c14f-428f-89d7-1ee0f2d68447/usage"
+        guard let organizationId = organizationId, !organizationId.isEmpty else {
+            print("Error: No organization ID found. Please set it in Settings or CLAUDE_ORGANIZATION_ID environment variable")
+            DispatchQueue.main.async {
+                self.statusItem.button?.title = "❌"
+            }
+            return
+        }
+
+        let urlString = "https://claude.ai/api/organizations/\(organizationId)/usage"
         guard let url = URL(string: urlString) else { return }
 
         var request = URLRequest(url: url)
@@ -327,65 +542,153 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               let button = statusItem.button else { return }
 
         let metric = Preferences.shared.selectedMetric
+        let numberDisplayStyle = Preferences.shared.numberDisplayStyle
+        let progressIconStyle = Preferences.shared.progressIconStyle
+        let showStatusEmoji = Preferences.shared.showStatusEmoji
 
         guard let (utilization, resetDateString, _) = getSelectedMetricData(from: data, metric: metric) else {
             button.title = "❌"
             return
         }
 
-        // Parse reset date
+        // Calculate status and expected usage
+        let status = calculateStatus(utilization: utilization, resetDateString: resetDateString, metric: metric)
+        let expectedUsage = calculateExpectedUsage(resetDateString: resetDateString, metric: metric)
+
+        // Build the display string
+        var displayParts: [String] = []
+
+        // Add status emoji if enabled
+        if showStatusEmoji {
+            displayParts.append(getStatusIcon(for: status))
+        }
+
+        // Add number display based on style
+        switch numberDisplayStyle {
+        case .none:
+            break
+        case .percentage:
+            displayParts.append("\(formatUtilization(utilization))%")
+        case .threshold:
+            let expectedStr = expectedUsage != nil ? formatUtilization(expectedUsage!) : "?"
+            displayParts.append("\(formatUtilization(utilization))|\(expectedStr)")
+        }
+
+        // Add progress icon based on style
+        switch progressIconStyle {
+        case .none:
+            break
+        case .circle:
+            displayParts.append(getCircleIcon(for: utilization))
+        case .braille:
+            displayParts.append(getBrailleIcon(for: utilization))
+        case .barAscii:
+            displayParts.append(getProgressBar(for: utilization, filled: "=", empty: " ", prefix: "[", suffix: "]"))
+        case .barBlocks:
+            displayParts.append(getProgressBar(for: utilization, filled: "▓", empty: "░", prefix: "", suffix: ""))
+        case .barSquares:
+            displayParts.append(getProgressBar(for: utilization, filled: "■", empty: "□", prefix: "", suffix: ""))
+        case .barCircles:
+            displayParts.append(getProgressBar(for: utilization, filled: "●", empty: "○", prefix: "", suffix: ""))
+        case .barLines:
+            displayParts.append(getProgressBar(for: utilization, filled: "━", empty: "─", prefix: "", suffix: ""))
+        }
+
+        // Fallback if nothing is selected
+        if displayParts.isEmpty {
+            displayParts.append("\(formatUtilization(utilization))%")
+        }
+
+        button.title = displayParts.joined(separator: " ")
+    }
+
+    enum UsageStatus {
+        case onTrack
+        case borderline
+        case exceeding
+    }
+
+    func calculateStatus(utilization: Double, resetDateString: String, metric: MetricType) -> UsageStatus {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
         guard let resetDate = formatter.date(from: resetDateString) else {
-            // Fallback to old logic if date parsing fails
-            let icon = getIconForUtilization(utilization)
-            button.title = "\(icon) \(formatUtilization(utilization))%"
-            return
+            // Fallback to simple threshold-based status
+            if utilization >= 80 { return .exceeding }
+            else if utilization >= 50 { return .borderline }
+            else { return .onTrack }
         }
 
-        // Calculate window duration based on metric type
         let windowDuration: TimeInterval
         switch metric {
         case .fiveHour:
-            windowDuration = 5 * 3600 // 5 hours in seconds
+            windowDuration = 5 * 3600
         case .sevenDay, .sevenDaySonnet:
-            windowDuration = 7 * 24 * 3600 // 7 days in seconds
+            windowDuration = 7 * 24 * 3600
         }
 
         let now = Date()
         let timeRemaining = resetDate.timeIntervalSince(now)
 
-        // If time is invalid, use old logic
         guard timeRemaining > 0 && timeRemaining <= windowDuration else {
-            let icon = getIconForUtilization(utilization)
-            button.title = "\(icon) \(formatUtilization(utilization))%"
-            return
+            if utilization >= 80 { return .exceeding }
+            else if utilization >= 50 { return .borderline }
+            else { return .onTrack }
         }
 
-        // Calculate expected consumption based on time elapsed
         let timeElapsed = windowDuration - timeRemaining
         let expectedConsumption = (timeElapsed / windowDuration) * 100.0
 
-        // Compare actual vs expected consumption
-        let icon: String
         if utilization < expectedConsumption - 5 {
-            // More than 5% below expected - doing great
-            icon = "✳️"
+            return .onTrack
         } else if utilization <= expectedConsumption + 5 {
-            // Within ±5% of expected - normal range
-            icon = "🚀"
+            return .borderline
         } else {
-            // More than 5% over expected - significantly over pace
-            icon = "🚨"
+            return .exceeding
         }
+    }
 
-        button.title = "\(icon) \(formatUtilization(utilization))%"
+    func getStatusIcon(for status: UsageStatus) -> String {
+        switch status {
+        case .onTrack: return "✳️"
+        case .borderline: return "🚀"
+        case .exceeding: return "⚠️"
+        }
+    }
+
+    func getCircleIcon(for utilization: Double) -> String {
+        // ○ ◔ ◑ ◕ ●
+        if utilization < 12.5 { return "○" }
+        else if utilization < 37.5 { return "◔" }
+        else if utilization < 62.5 { return "◑" }
+        else if utilization < 87.5 { return "◕" }
+        else { return "●" }
+    }
+
+    func getBrailleIcon(for utilization: Double) -> String {
+        // ⠀ ⠁ ⠃ ⠇ ⡇ ⣇ ⣧ ⣿
+        if utilization < 12.5 { return "⠀" }
+        else if utilization < 25 { return "⠁" }
+        else if utilization < 37.5 { return "⠃" }
+        else if utilization < 50 { return "⠇" }
+        else if utilization < 62.5 { return "⡇" }
+        else if utilization < 75 { return "⣇" }
+        else if utilization < 87.5 { return "⣧" }
+        else { return "⣿" }
+    }
+
+    func getProgressBar(for utilization: Double, filled: String, empty: String, prefix: String, suffix: String) -> String {
+        let totalBlocks = 5
+        let filledBlocks = Int((utilization / 100.0) * Double(totalBlocks) + 0.5)
+        let emptyBlocks = totalBlocks - filledBlocks
+        let filledStr = String(repeating: filled, count: filledBlocks)
+        let emptyStr = String(repeating: empty, count: emptyBlocks)
+        return "\(prefix)\(filledStr)\(emptyStr)\(suffix)"
     }
 
     func getIconForUtilization(_ utilization: Double) -> String {
         if utilization >= 80 {
-            return "🚨"
+            return "⚠️"
         } else if utilization >= 50 {
             return "🚀"
         } else {
@@ -397,7 +700,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return String(format: "%.0f", value)
     }
 
-    func formatRelativeDate(_ dateString: String) -> String {
+    func formatResetTime(_ dateString: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
@@ -415,20 +718,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hours = Int(interval / 3600)
         let minutes = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
 
-        if hours > 24 {
+        if hours >= 24 {
             let days = hours / 24
-            return "in \(days) day\(days == 1 ? "" : "s")"
+            return "\(days) day\(days == 1 ? "" : "s")"
         } else if hours > 0 {
             if minutes > 0 {
-                return "in \(hours)h \(minutes)m"
+                return "\(hours)h \(minutes)m"
             } else {
-                return "in \(hours) hour\(hours == 1 ? "" : "s")"
+                return "\(hours)h"
             }
         } else if minutes > 0 {
-            return "in \(minutes) min\(minutes == 1 ? "" : "s")"
+            return "\(minutes)m"
         } else {
-            return "in < 1 min"
+            return "< 1m"
         }
+    }
+
+    func calculateExpectedUsage(resetDateString: String, metric: MetricType) -> Double? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        guard let resetDate = formatter.date(from: resetDateString) else {
+            return nil
+        }
+
+        let windowDuration: TimeInterval
+        switch metric {
+        case .fiveHour:
+            windowDuration = 5 * 3600
+        case .sevenDay, .sevenDaySonnet:
+            windowDuration = 7 * 24 * 3600
+        }
+
+        let now = Date()
+        let timeRemaining = resetDate.timeIntervalSince(now)
+
+        guard timeRemaining > 0 && timeRemaining <= windowDuration else {
+            return nil
+        }
+
+        let timeElapsed = windowDuration - timeRemaining
+        return (timeElapsed / windowDuration) * 100.0
     }
 }
 
