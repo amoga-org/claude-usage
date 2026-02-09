@@ -190,6 +190,7 @@ class SettingsWindowController: NSWindowController {
 struct SettingsView: View {
     let onClose: () -> Void
 
+    @State private var selectedTab = 0
     @State private var sessionKey: String = Preferences.shared.sessionKey ?? ""
     @State private var organizationId: String = Preferences.shared.organizationId ?? ""
     @State private var selectedMetric: MetricType = Preferences.shared.selectedMetric
@@ -197,8 +198,21 @@ struct SettingsView: View {
     @State private var progressIconStyle: ProgressIconStyle = Preferences.shared.progressIconStyle
     @State private var showStatusEmoji: Bool = Preferences.shared.showStatusEmoji
     @State private var launchAtLogin: Bool = LoginItemManager.shared.isLoginItemEnabled
+    @State private var logText: String = ""
 
     var body: some View {
+        TabView(selection: $selectedTab) {
+            settingsTab
+                .tabItem { Text("Settings") }
+                .tag(0)
+            logTab
+                .tabItem { Text("Log") }
+                .tag(1)
+        }
+        .frame(width: 520, height: 580)
+    }
+
+    var settingsTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Claude Usage Settings")
@@ -308,7 +322,42 @@ struct SettingsView: View {
             }
             .padding(24)
         }
-        .frame(width: 520, height: 580)
+    }
+
+    var logTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Application Log")
+                    .font(.headline)
+                Spacer()
+                Button("Copy All") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(logText, forType: .string)
+                }
+                Button("Refresh") {
+                    loadLog()
+                }
+            }
+
+            TextEditor(text: .constant(logText))
+                .font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Text("Log file: ~/.claude-usage/app.log")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .onAppear { loadLog() }
+    }
+
+    private func loadLog() {
+        let path = AppDelegate.logFile
+        if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+            logText = contents
+        } else {
+            logText = "(no log file found)"
+        }
     }
 }
 
@@ -325,7 +374,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var settingsWindowController: SettingsWindowController?
 
+    // Fetch reliability tracking
+    var logEntries: [(Date, String)] = []
+    var consecutiveFailures: Int = 0
+    let maxRetries = 3
+    let maxLogEntries = 50
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        addLog("App launched")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
@@ -371,9 +427,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     item.state = .on
                 }
                 menu.addItem(item)
-                let expected = calculateExpectedUsage(resetDateString: fiveHour.resets_at, metric: .fiveHour)
-                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
-                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(fiveHour.resets_at))", action: nil, keyEquivalent: ""))
+                menu.addItem(NSMenuItem(title: "  t: \(metricDetailString(limit: fiveHour, metric: .fiveHour))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
 
@@ -388,9 +442,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     item.state = .on
                 }
                 menu.addItem(item)
-                let expected = calculateExpectedUsage(resetDateString: sevenDay.resets_at, metric: .sevenDay)
-                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
-                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(sevenDay.resets_at))", action: nil, keyEquivalent: ""))
+                menu.addItem(NSMenuItem(title: "  t: \(metricDetailString(limit: sevenDay, metric: .sevenDay))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
 
@@ -405,18 +457,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     item.state = .on
                 }
                 menu.addItem(item)
-                let expected = calculateExpectedUsage(resetDateString: sevenDaySonnet.resets_at, metric: .sevenDaySonnet)
-                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
-                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(sevenDaySonnet.resets_at))", action: nil, keyEquivalent: ""))
+                menu.addItem(NSMenuItem(title: "  t: \(metricDetailString(limit: sevenDaySonnet, metric: .sevenDaySonnet))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
 
             // 7-day Opus (if available)
             if let sevenDayOpus = data.seven_day_opus {
                 menu.addItem(NSMenuItem(title: "\(formatUtilization(sevenDayOpus.utilization))% 7-day Limit (Opus)", action: nil, keyEquivalent: ""))
-                let expected = calculateExpectedUsage(resetDateString: sevenDayOpus.resets_at, metric: .sevenDay)
-                let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
-                menu.addItem(NSMenuItem(title: "  t: \(expectedStr)%, \(formatResetTime(sevenDayOpus.resets_at))", action: nil, keyEquivalent: ""))
+                menu.addItem(NSMenuItem(title: "  t: \(metricDetailString(limit: sevenDayOpus, metric: .sevenDay))", action: nil, keyEquivalent: ""))
                 menu.addItem(NSMenuItem.separator())
             }
         } else {
@@ -424,6 +472,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
+        // Log section
+        let logItem = NSMenuItem(title: "Log", action: nil, keyEquivalent: "")
+        let logSubmenu = NSMenu()
+        if logEntries.isEmpty {
+            logSubmenu.addItem(NSMenuItem(title: "No entries", action: nil, keyEquivalent: ""))
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            let recentLogs = logEntries.suffix(15)
+            for (date, message) in recentLogs {
+                let title = "\(formatter.string(from: date)) \(message)"
+                logSubmenu.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
+            }
+        }
+        logItem.submenu = logSubmenu
+        menu.addItem(logItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Refresh", action: #selector(refreshClicked), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitClicked), keyEquivalent: "q"))
@@ -436,6 +502,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func switchToFiveHour() {
         Preferences.shared.selectedMetric = .fiveHour
         updateMenuBarIcon()
+    }
+
+    func metricDetailString(limit: UsageLimit, metric: MetricType) -> String {
+        guard let resetDate = limit.resets_at else {
+            return "?%, —"
+        }
+        let expected = calculateExpectedUsage(resetDateString: resetDate, metric: metric)
+        let expectedStr = expected != nil ? formatUtilization(expected!) : "?"
+        return "\(expectedStr)%, \(formatResetTime(resetDate))"
     }
 
     @objc func switchToSevenDay() {
@@ -465,7 +540,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.terminate(self)
     }
 
+    static let logDir: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let dir = "\(home)/.claude-usage"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)
+        return dir
+    }()
+    static let logFile: String = "\(logDir)/app.log"
+
+    func addLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let timestamp = formatter.string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+
+        DispatchQueue.main.async {
+            let entry = (Date(), message)
+            self.logEntries.append(entry)
+            if self.logEntries.count > self.maxLogEntries {
+                self.logEntries.removeFirst(self.logEntries.count - self.maxLogEntries)
+            }
+        }
+
+        // Write to file
+        let path = AppDelegate.logFile
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path) {
+                if let handle = FileHandle(forWritingAtPath: path) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: path, contents: data, attributes: nil)
+            }
+        }
+    }
+
     func fetchUsageData() {
+        fetchUsageData(retryCount: 0)
+    }
+
+    private func fetchUsageData(retryCount: Int) {
         var sessionKey = Preferences.shared.sessionKey
         var organizationId = Preferences.shared.organizationId
 
@@ -478,32 +594,59 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let sessionKey = sessionKey, !sessionKey.isEmpty else {
-            print("Error: No session key found. Please set it in Settings or CLAUDE_SESSION_KEY environment variable")
+            let msg = "No session key configured"
+            addLog(msg)
             DispatchQueue.main.async {
+                self.consecutiveFailures += 1
                 self.statusItem.button?.title = "❌"
             }
             return
         }
 
         guard let organizationId = organizationId, !organizationId.isEmpty else {
-            print("Error: No organization ID found. Please set it in Settings or CLAUDE_ORGANIZATION_ID environment variable")
+            let msg = "No organization ID configured"
+            addLog(msg)
             DispatchQueue.main.async {
+                self.consecutiveFailures += 1
                 self.statusItem.button?.title = "❌"
             }
             return
         }
 
         let urlString = "https://claude.ai/api/organizations/\(organizationId)/usage"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else {
+            addLog("Invalid URL: \(urlString)")
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = 15
         request.addValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
         request.addValue("application/json", forHTTPHeaderField: "Accept")
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let data = data, error == nil else {
-                print("Error fetching data: \(error?.localizedDescription ?? "Unknown error")")
+            guard let self = self else { return }
+
+            // Network error
+            if let error = error {
+                let msg = "Network error: \(error.localizedDescription)"
+                self.addLog(msg)
+                self.handleFetchFailure(retryCount: retryCount)
+                return
+            }
+
+            // Check HTTP status
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                let msg = "HTTP \(httpResponse.statusCode) from API"
+                self.addLog(msg)
+                self.handleFetchFailure(retryCount: retryCount)
+                return
+            }
+
+            guard let data = data else {
+                self.addLog("Empty response body")
+                self.handleFetchFailure(retryCount: retryCount)
                 return
             }
 
@@ -512,18 +655,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let usageData = try decoder.decode(UsageResponse.self, from: data)
 
                 DispatchQueue.main.async {
-                    self?.usageData = usageData
-                    self?.updateMenuBarIcon()
+                    self.consecutiveFailures = 0
+                    self.usageData = usageData
+                    self.updateMenuBarIcon()
+                    self.addLog("Fetch OK")
                 }
             } catch {
-                print("Error decoding JSON: \(error)")
+                let body = String(data: data, encoding: .utf8) ?? "<binary>"
+                let preview = String(body.prefix(200))
+                self.addLog("JSON decode error: \(error) | body: \(preview)")
+                self.handleFetchFailure(retryCount: retryCount)
             }
         }
 
         task.resume()
     }
 
-    func getSelectedMetricData(from data: UsageResponse, metric: MetricType) -> (Double, String, String)? {
+    private func handleFetchFailure(retryCount: Int) {
+        if retryCount < maxRetries {
+            let delay = pow(2.0, Double(retryCount)) // 1s, 2s, 4s
+            addLog("Retrying in \(Int(delay))s (attempt \(retryCount + 1)/\(maxRetries))")
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.fetchUsageData(retryCount: retryCount + 1)
+            }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.consecutiveFailures += 1
+                self.addLog("Failed after \(self.maxRetries) retries (consecutive: \(self.consecutiveFailures))")
+                if self.consecutiveFailures >= 3 {
+                    self.statusItem.button?.title = "❌"
+                }
+            }
+        }
+    }
+
+    func getSelectedMetricData(from data: UsageResponse, metric: MetricType) -> (Double, String?, String)? {
         switch metric {
         case .fiveHour:
             guard let limit = data.five_hour else { return nil }
@@ -552,8 +719,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Calculate status and expected usage
-        let status = calculateStatus(utilization: utilization, resetDateString: resetDateString, metric: metric)
-        let expectedUsage = calculateExpectedUsage(resetDateString: resetDateString, metric: metric)
+        let status: UsageStatus
+        let expectedUsage: Double?
+        if let resetDate = resetDateString {
+            status = calculateStatus(utilization: utilization, resetDateString: resetDate, metric: metric)
+            expectedUsage = calculateExpectedUsage(resetDateString: resetDate, metric: metric)
+        } else {
+            status = utilization >= 80 ? .exceeding : (utilization >= 50 ? .borderline : .onTrack)
+            expectedUsage = nil
+        }
 
         // Build the display string
         var displayParts: [String] = []
@@ -776,7 +950,7 @@ struct UsageResponse: Codable {
 
 struct UsageLimit: Codable {
     let utilization: Double
-    let resets_at: String
+    let resets_at: String?
 }
 
 // MARK: - Main Entry Point

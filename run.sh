@@ -12,20 +12,8 @@ if [ ! -d "${APP_BUNDLE}" ]; then
     ./build.sh
 fi
 
-# Check for session key
-if [ -z "$CLAUDE_SESSION_KEY" ]; then
-    echo "Error: CLAUDE_SESSION_KEY environment variable not set"
-    echo ""
-    echo "Please set your Claude session key:"
-    echo "  export CLAUDE_SESSION_KEY='your-session-key-here'"
-    echo ""
-    echo "To find your session key:"
-    echo "  1. Open claude.ai in your browser"
-    echo "  2. Open Developer Tools (Cmd+Option+I)"
-    echo "  3. Go to Application > Cookies > https://claude.ai"
-    echo "  4. Copy the value of the 'sessionKey' cookie"
-    exit 1
-fi
+# Kill existing instance if running
+pkill -f "${APP_NAME}" 2>/dev/null && sleep 1
 
 echo "Starting ${APP_NAME}..."
 open "${APP_BUNDLE}"
